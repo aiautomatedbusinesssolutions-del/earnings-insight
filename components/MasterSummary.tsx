@@ -6,12 +6,17 @@ import {
   TrendingUp,
   Minus,
   AlertTriangle,
+  Loader2,
+  RotateCcw,
 } from "lucide-react";
 import type { MasterSummary as MasterSummaryType } from "@/lib/mockData";
 
 interface MasterSummaryProps {
   summary: MasterSummaryType;
   companyName: string;
+  isLoading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
 function getTrendIcon(direction: "up" | "down" | "flat") {
@@ -68,6 +73,9 @@ function MetricRow({
 export default function MasterSummary({
   summary,
   companyName,
+  isLoading,
+  error,
+  onRetry,
 }: MasterSummaryProps) {
   const totalQuarters = summary.beatCount + summary.missCount;
   const beatRate = summary.beatCount >= summary.missCount;
@@ -161,16 +169,46 @@ export default function MasterSummary({
         <h3 className="text-sm font-semibold text-slate-100 mb-2">
           The Big Picture
         </h3>
-        <p className="text-sm text-slate-300 leading-relaxed">
-          {summary.bigPicture}
-        </p>
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-3">
+            <Loader2 className="h-4 w-4 text-sky-400 animate-spin" />
+            <span className="text-sm text-slate-400">
+              AI is analyzing all quarters...
+            </span>
+          </div>
+        ) : error ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="text-sm text-amber-400">{error}</span>
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Retry
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-300 leading-relaxed">
+            {summary.bigPicture}
+          </p>
+        )}
       </div>
 
       {/* Broken Promise Tracker */}
       {summary.brokenPromises.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
+            <span className="relative group">
+              <AlertTriangle className="h-4 w-4 text-amber-400 cursor-help" />
+              <span className="absolute left-0 top-full mt-1.5 w-64 bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-3 py-2 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                Red Flag: The AI detected a mismatch between what the CEO said and what the numbers show.
+              </span>
+            </span>
             <h3 className="text-sm font-semibold text-slate-100">
               Broken Promise Tracker
             </h3>

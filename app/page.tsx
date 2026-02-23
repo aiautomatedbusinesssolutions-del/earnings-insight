@@ -7,7 +7,8 @@ import SearchHeader from "@/components/SearchHeader";
 import TransparencyGauge from "@/components/TransparencyGauge";
 import TruthTranslator from "@/components/TruthTranslator";
 import MasterSummary from "@/components/MasterSummary";
-import type { TickerData, TruthTranslatorEntry } from "@/lib/mockData";
+import EducationStation from "@/components/EducationStation";
+import type { TickerData, TruthTranslatorEntry, BrokenPromise } from "@/lib/mockData";
 
 // Dynamic import for Recharts-dependent component — prevents SSR webpack errors
 const PriceTimeline = dynamic(() => import("@/components/PriceTimeline"), {
@@ -34,8 +35,12 @@ export default function Home() {
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, TruthTranslatorEntry>>({});
   const [analysisErrors, setAnalysisErrors] = useState<Record<string, string>>({});
   const [analyzingQuarters, setAnalyzingQuarters] = useState<Set<string>>(new Set());
+  const [aiSummary, setAiSummary] = useState<{ bigPicture: string; brokenPromises: BrokenPromise[] } | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const fetchedRef = useRef<Set<string>>(new Set());
   const aiAnalysisRef = useRef<Record<string, TruthTranslatorEntry>>({});
+  const summaryFetchedRef = useRef(false);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -105,6 +110,50 @@ export default function Home() {
     if (quarter) fetchAnalysis(quarter);
   }, [selectedQuarter, tickerData, isDemo, fetchAnalysis]);
 
+  // Fetch Big Picture summary once when live tickerData arrives
+  const fetchSummary = useCallback(async () => {
+    if (!tickerData || isDemo || summaryFetchedRef.current) return;
+    summaryFetchedRef.current = true;
+
+    console.log(`[UI] Starting Big Picture summary for ${tickerData.ticker}...`);
+    setSummaryLoading(true);
+    setSummaryError(null);
+
+    try {
+      const res = await fetch(`/api/summarize/${encodeURIComponent(tickerData.ticker)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data.errorType === "config"
+          ? "AI API key not configured"
+          : data.errorType === "gemini"
+            ? "AI summary error — check server logs"
+            : data.errorType === "data"
+              ? "Earnings data not found"
+              : data.error || `Summary failed (${res.status})`;
+        console.warn(`[UI] Summary failed: ${errorMsg}`);
+        setSummaryError(errorMsg);
+        summaryFetchedRef.current = false;
+        return;
+      }
+
+      console.log(`[UI] Big Picture summary complete for ${tickerData.ticker}`);
+      setAiSummary(data as { bigPicture: string; brokenPromises: BrokenPromise[] });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      console.warn(`[UI] Summary network error:`, msg);
+      setSummaryError(`Network error: ${msg}`);
+      summaryFetchedRef.current = false;
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [tickerData, isDemo]);
+
+  // Auto-trigger summary fetch when live data arrives
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+
   // Merge AI analysis over placeholder entries
   const mergedEntries = useMemo(() => {
     if (!tickerData) return [];
@@ -112,6 +161,17 @@ export default function Home() {
       aiAnalysis[entry.quarter] ?? entry
     );
   }, [tickerData, aiAnalysis]);
+
+  // Merge AI summary over placeholder masterSummary
+  const mergedSummary = useMemo(() => {
+    if (!tickerData) return undefined;
+    if (!aiSummary) return tickerData.masterSummary;
+    return {
+      ...tickerData.masterSummary,
+      bigPicture: aiSummary.bigPicture,
+      brokenPromises: aiSummary.brokenPromises,
+    };
+  }, [tickerData, aiSummary]);
 
   // Currently analyzing quarter for spinner + current error
   const activeQuarterKey = useMemo(() => {
@@ -133,8 +193,12 @@ export default function Home() {
     setAiAnalysis({});
     setAnalysisErrors({});
     setAnalyzingQuarters(new Set());
+    setAiSummary(null);
+    setSummaryLoading(false);
+    setSummaryError(null);
     fetchedRef.current = new Set();
     aiAnalysisRef.current = {};
+    summaryFetchedRef.current = false;
 
     try {
       const res = await fetch(`/api/ticker/${encodeURIComponent(ticker)}`);
@@ -236,8 +300,11 @@ export default function Home() {
                 </div>
                 <div className="lg:col-span-1">
                   <MasterSummary
-                    summary={tickerData.masterSummary}
+                    summary={mergedSummary!}
                     companyName={tickerData.companyName}
+                    isLoading={summaryLoading}
+                    error={summaryError}
+                    onRetry={fetchSummary}
                   />
                 </div>
               </div>
@@ -281,6 +348,11 @@ export default function Home() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Education Station — always visible at the bottom */}
+        <div className="mt-12">
+          <EducationStation />
+        </div>
       </div>
     </main>
   );

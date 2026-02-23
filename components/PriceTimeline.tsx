@@ -11,7 +11,7 @@ import {
   Tooltip,
   ReferenceDot,
 } from "recharts";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp, CircleHelp } from "lucide-react";
 import type { DailyPrice, EarningsEvent } from "@/lib/mockData";
 
 // ---------------------------------------------------------------------------
@@ -247,9 +247,15 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
         {/* Bottom stats */}
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-              Surprise
-            </p>
+            <span className="relative group inline-flex items-center gap-1">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+                Surprise
+              </p>
+              <CircleHelp className="h-3 w-3 text-slate-600 cursor-help" />
+              <span className="absolute left-0 bottom-full mb-1.5 w-56 bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-3 py-2 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                This is the Expectation Gap — the difference between Wall Street&apos;s guess and reality.
+              </span>
+            </span>
             <p
               className={`text-sm font-bold tabular-nums ${
                 earnings.surprisePercent >= 0
