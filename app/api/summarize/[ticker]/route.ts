@@ -2,30 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEarningsSurprises, getCompanyProfile } from "@/lib/finnhub";
 import { getPolygonPrices } from "@/lib/polygon";
 import { generateBigPictureSummary, isGeminiKeyConfigured } from "@/lib/gemini";
-import type { DailyPrice } from "@/lib/mockData";
-
-// ---------------------------------------------------------------------------
-// Helpers (duplicated from ticker route to keep routes self-contained)
-// ---------------------------------------------------------------------------
-function computeStockReaction(
-  earningsDate: string,
-  prices: DailyPrice[]
-): number {
-  const idx = prices.findIndex((p) => p.date >= earningsDate);
-  if (idx <= 0 || idx >= prices.length - 1) return 0;
-
-  const before = prices[idx - 1].close;
-  const after = prices[Math.min(idx + 1, prices.length - 1)].close;
-  return Math.round(((after - before) / before) * 10000) / 100;
-}
-
-function deriveTransparencyScore(surprisePercent: number): number {
-  if (surprisePercent >= 5) return 85;
-  if (surprisePercent >= 2) return 75;
-  if (surprisePercent >= 0) return 65;
-  if (surprisePercent >= -2) return 45;
-  return 30;
-}
+import { computeStockReaction, deriveTransparencyScore } from "@/lib/earnings-utils";
+import { getCached, setCache } from "@/lib/cache";
+import type { DailyPrice, BrokenPromise } from "@/lib/mockData";
 
 // ---------------------------------------------------------------------------
 // Route handler — GET /api/summarize/[ticker]
@@ -94,17 +73,28 @@ export async function GET(
 
     const companyName = profile?.name || upperTicker;
 
+    // Step 5: Check cache before calling Gemini
+    const cacheKey = `summary:${upperTicker}`;
+    const cached = getCached<{ bigPicture: string; brokenPromises: BrokenPromise[] }>(cacheKey);
+
+    if (cached) {
+      console.log(`[Cache] HIT — ${cacheKey}`);
+      console.log(`[Summary] === SUCCESS (cached): ${upperTicker} ===`);
+      return NextResponse.json(cached);
+    }
+
+    console.log(`[Cache] MISS — ${cacheKey}`);
     console.log(
       `[Summary] Step 3 — Calling Gemini Big Picture for ${companyName} (${quarters.length} quarters)...`
     );
 
-    // Step 5: Call Gemini
     const summary = await generateBigPictureSummary(
       upperTicker,
       companyName,
       quarters
     );
 
+    setCache(cacheKey, summary);
     console.log(`[Summary] === SUCCESS: ${upperTicker} ===`);
     return NextResponse.json(summary);
   } catch (err) {

@@ -9,6 +9,7 @@ import {
   isPolygonKeyConfigured,
 } from "@/lib/polygon";
 import { getRecentFilings } from "@/lib/edgar";
+import { computeStockReaction, deriveTransparencyScore } from "@/lib/earnings-utils";
 import type {
   TickerData,
   DailyPrice,
@@ -30,35 +31,6 @@ function mapPrices(
     date,
     close: Math.round(closes[i] * 100) / 100,
   }));
-}
-
-/**
- * Compute the stock price reaction (% change) on or near an earnings date.
- * Finds the closest price before and after the earnings date.
- */
-function computeStockReaction(
-  earningsDate: string,
-  prices: DailyPrice[]
-): number {
-  const idx = prices.findIndex((p) => p.date >= earningsDate);
-  if (idx <= 0 || idx >= prices.length - 1) return 0;
-
-  const before = prices[idx - 1].close;
-  const after = prices[Math.min(idx + 1, prices.length - 1)].close;
-  return Math.round(((after - before) / before) * 10000) / 100;
-}
-
-/**
- * Derive a transparency score from earnings surprise data.
- * Consistent small beats = high transparency (conservative guidance).
- * Big misses = low transparency.
- */
-function deriveTransparencyScore(surprisePercent: number): number {
-  if (surprisePercent >= 5) return 85;
-  if (surprisePercent >= 2) return 75;
-  if (surprisePercent >= 0) return 65;
-  if (surprisePercent >= -2) return 45;
-  return 30;
 }
 
 function deriveOverallTransparency(earnings: EarningsEvent[]): number {

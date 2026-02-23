@@ -71,7 +71,7 @@ export default function Home() {
         const errorMsg = data.errorType === "config"
           ? "AI API key not configured"
           : data.errorType === "gemini"
-            ? "AI analysis error — check server logs"
+            ? "The AI is taking a coffee break — try again in 30 seconds."
             : data.errorType === "data"
               ? "Earnings data not found for this quarter"
               : data.error || `Analysis failed (${res.status})`;
@@ -128,7 +128,7 @@ export default function Home() {
         const errorMsg = data.errorType === "config"
           ? "AI API key not configured"
           : data.errorType === "gemini"
-            ? "AI summary error — check server logs"
+            ? "The AI is taking a coffee break — try again in 30 seconds."
             : data.errorType === "data"
               ? "Earnings data not found"
               : data.error || `Summary failed (${res.status})`;

@@ -1,32 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEarningsSurprises, getCompanyProfile } from "@/lib/finnhub";
-import { getRecentFilings, type EdgarFiling } from "@/lib/edgar";
+import { getRecentFilings } from "@/lib/edgar";
 import { analyzeEarningsQuarter, isGeminiKeyConfigured } from "@/lib/gemini";
-
-// ---------------------------------------------------------------------------
-// Find the closest 8-K filing to an earnings date (within ±7 days)
-// ---------------------------------------------------------------------------
-function findClosestFiling(
-  earningsDate: string,
-  filings: EdgarFiling[]
-): EdgarFiling | null {
-  const target = new Date(earningsDate + "T00:00:00").getTime();
-  const windowMs = 7 * 24 * 60 * 60 * 1000;
-
-  let closest: EdgarFiling | null = null;
-  let closestDist = Infinity;
-
-  for (const filing of filings) {
-    const filingTime = new Date(filing.date + "T00:00:00").getTime();
-    const dist = Math.abs(filingTime - target);
-    if (dist <= windowMs && dist < closestDist) {
-      closest = filing;
-      closestDist = dist;
-    }
-  }
-
-  return closest;
-}
+import { findClosestFiling } from "@/lib/earnings-utils";
+import { getCached, setCache } from "@/lib/cache";
+import type { TruthTranslatorEntry } from "@/lib/mockData";
 
 // ---------------------------------------------------------------------------
 // Route handler — GET /api/analyze/[ticker]/[quarter]?stockReaction=-2.1
@@ -116,7 +94,17 @@ export async function GET(
 
     const companyName = profile?.name || upperTicker;
 
-    // Step 5: Call Gemini
+    // Step 5: Check cache before calling Gemini
+    const cacheKey = `analyze:${upperTicker}:${decodedQuarter}`;
+    const cached = getCached<TruthTranslatorEntry>(cacheKey);
+
+    if (cached) {
+      console.log(`[Cache] HIT — ${cacheKey}`);
+      console.log(`[Analyze] === SUCCESS (cached): ${upperTicker} ${decodedQuarter} ===`);
+      return NextResponse.json(cached);
+    }
+
+    console.log(`[Cache] MISS — ${cacheKey}`);
     console.log(`[Analyze] Step 5 — Calling Gemini for ${companyName} ${decodedQuarter}...`);
     const entry = await analyzeEarningsQuarter({
       ticker: upperTicker,
@@ -131,6 +119,7 @@ export async function GET(
       filingUrl: closestFiling?.url,
     });
 
+    setCache(cacheKey, entry);
     console.log(`[Analyze] === SUCCESS: ${upperTicker} ${decodedQuarter} ===`);
     return NextResponse.json(entry);
   } catch (err) {
