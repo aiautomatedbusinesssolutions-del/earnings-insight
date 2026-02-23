@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
+import { track } from "@vercel/analytics";
 import SearchHeader from "@/components/SearchHeader";
 import TransparencyGauge from "@/components/TransparencyGauge";
 import TruthTranslator from "@/components/TruthTranslator";
@@ -219,6 +220,7 @@ export default function Home() {
 
       setTickerData(data as TickerData);
       setIsDemo(data.isDemo ?? false);
+      track("Ticker Search", { ticker: data.ticker, isDemo: data.isDemo ?? false });
     } catch {
       setSearchError(
         "Network error. Please check your connection and try again."
