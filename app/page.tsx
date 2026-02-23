@@ -1,23 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import SearchHeader from "@/components/SearchHeader";
 import TransparencyGauge from "@/components/TransparencyGauge";
-import PriceTimeline from "@/components/PriceTimeline";
 import TruthTranslator from "@/components/TruthTranslator";
-import SummaryCard from "@/components/SummaryCard";
+import MasterSummary from "@/components/MasterSummary";
 import { getTickerData, type TickerData } from "@/lib/mockData";
+
+// Dynamic import for Recharts-dependent component — prevents SSR webpack errors
+const PriceTimeline = dynamic(() => import("@/components/PriceTimeline"), {
+  ssr: false,
+  loading: () => (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 h-full flex flex-col">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="h-5 w-5 rounded bg-slate-800 animate-pulse" />
+        <div className="h-5 w-32 rounded bg-slate-800 animate-pulse" />
+      </div>
+      <div className="flex-1 min-h-[340px] flex items-center justify-center">
+        <div className="text-slate-500 text-sm">Loading chart...</div>
+      </div>
+    </div>
+  ),
+});
 
 export default function Home() {
   const [tickerData, setTickerData] = useState<TickerData | null>(null);
+  const [selectedQuarter, setSelectedQuarter] = useState<string | null>(null);
 
   function handleSearch(ticker: string) {
     const data = getTickerData(ticker);
     if (data) {
       setTickerData(data);
+      setSelectedQuarter(null);
     }
   }
+
+  const handleEarningsSelect = useCallback((quarter: string | null) => {
+    setSelectedQuarter(quarter);
+  }, []);
 
   return (
     <main className="min-h-screen bg-slate-950">
@@ -52,17 +74,16 @@ export default function Home() {
               transition={{ duration: 0.4, ease: "easeOut" }}
               className="space-y-6"
             >
-              {/* Primary row: Timeline (2/3) + Gauge (1/3) */}
+              {/* Row 1: Timeline (2/3) + Gauge (1/3) */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left column — 66% — Price Timeline */}
                 <div className="lg:col-span-2">
                   <PriceTimeline
                     prices={tickerData.prices}
                     earnings={tickerData.earnings}
+                    selectedQuarter={selectedQuarter}
+                    onEarningsSelect={handleEarningsSelect}
                   />
                 </div>
-
-                {/* Right column — 33% — Gauge (Aha! Moment) is prominent */}
                 <div className="lg:col-span-1">
                   <TransparencyGauge
                     score={tickerData.overallTransparencyScore}
@@ -71,16 +92,20 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Secondary row: Summary + Truth-Translator */}
+              {/* Row 2: Truth-Translator (2/3) + Master Summary (1/3) */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left column — Truth-Translator (wider) */}
                 <div className="lg:col-span-2">
-                  <TruthTranslator entries={tickerData.truthTranslator} />
+                  <TruthTranslator
+                    entries={tickerData.truthTranslator}
+                    selectedQuarter={selectedQuarter}
+                    onSelectQuarter={(q) => setSelectedQuarter(q)}
+                  />
                 </div>
-
-                {/* Right column — Yearly Summary */}
                 <div className="lg:col-span-1">
-                  <SummaryCard {...tickerData.yearlySummary} />
+                  <MasterSummary
+                    summary={tickerData.masterSummary}
+                    companyName={tickerData.companyName}
+                  />
                 </div>
               </div>
             </motion.div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useCallback } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -20,6 +20,8 @@ import type { DailyPrice, EarningsEvent } from "@/lib/mockData";
 interface PriceTimelineProps {
   prices: DailyPrice[];
   earnings: EarningsEvent[];
+  selectedQuarter: string | null;
+  onEarningsSelect: (quarter: string | null) => void;
 }
 
 interface ChartDataPoint {
@@ -45,36 +47,78 @@ function formatFullDate(dateStr: string): string {
   });
 }
 
+function shortQuarter(quarter: string): string {
+  // "Q1 2025" -> "Q1"
+  return quarter.split(" ")[0];
+}
+
 // ---------------------------------------------------------------------------
-// Custom 'E' Marker shape for ReferenceDot
+// Custom 'E' Marker shape — shows quarter label, highlights when selected
 // ---------------------------------------------------------------------------
-function EarningsMarker(props: { cx?: number; cy?: number }) {
-  const { cx = 0, cy = 0 } = props;
+function EarningsMarker(props: {
+  cx?: number;
+  cy?: number;
+  quarter?: string;
+  isSelected?: boolean;
+}) {
+  const { cx = 0, cy = 0, quarter = "", isSelected = false } = props;
+  const label = shortQuarter(quarter);
+
   return (
     <g style={{ cursor: "pointer" }}>
-      {/* Outer glow ring */}
-      <circle cx={cx} cy={cy} r={16} fill="rgba(56,189,248,0.08)" />
+      {/* Selected: animated outer glow pulse */}
+      {isSelected && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={22}
+          fill="none"
+          stroke="#38bdf8"
+          strokeWidth={1.5}
+          opacity={0.4}
+        >
+          <animate
+            attributeName="r"
+            values="18;24;18"
+            dur="2s"
+            repeatCount="indefinite"
+          />
+          <animate
+            attributeName="opacity"
+            values="0.5;0.15;0.5"
+            dur="2s"
+            repeatCount="indefinite"
+          />
+        </circle>
+      )}
+      {/* Outer glow ring — brighter when selected */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={18}
+        fill={isSelected ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.06)"}
+      />
       {/* Background circle */}
       <circle
         cx={cx}
         cy={cy}
-        r={12}
-        fill="#0f172a"
-        stroke="#38bdf8"
-        strokeWidth={2}
+        r={14}
+        fill={isSelected ? "#0c4a6e" : "#0f172a"}
+        stroke={isSelected ? "#7dd3fc" : "#38bdf8"}
+        strokeWidth={isSelected ? 2.5 : 2}
       />
-      {/* E label */}
+      {/* Quarter label */}
       <text
         x={cx}
         y={cy + 1}
         textAnchor="middle"
         dominantBaseline="central"
-        fill="#38bdf8"
-        fontSize={11}
+        fill={isSelected ? "#7dd3fc" : "#38bdf8"}
+        fontSize={9}
         fontWeight="700"
         fontFamily="Inter, system-ui, sans-serif"
       >
-        E
+        {label}
       </text>
     </g>
   );
@@ -137,33 +181,28 @@ function ComparisonBar({
 }
 
 // ---------------------------------------------------------------------------
-// Custom Tooltip — switches between simple price and rich earnings scorecard
+// Custom Tooltip — ONLY shows earnings scorecard when hovering an E marker.
+// Regular points show date + price only. Never leaks selected state.
 // ---------------------------------------------------------------------------
 interface CustomTooltipProps {
   active?: boolean;
   payload?: { payload: ChartDataPoint }[];
   label?: string;
-  selectedEarnings: EarningsEvent | null;
 }
 
-function CustomTooltip({ active, payload, selectedEarnings }: CustomTooltipProps) {
-  // If an E marker is clicked, show scorecard for that
-  const earningsToShow = selectedEarnings;
+function CustomTooltip({ active, payload }: CustomTooltipProps) {
+  if (!active || !payload?.[0]) return null;
 
-  // Or if we're hovering an earnings point on the line
-  const hoveredEarnings =
-    active && payload?.[0]?.payload?.earnings
-      ? payload[0].payload.earnings
-      : null;
+  const point = payload[0].payload;
+  const earnings = point.earnings ?? null;
 
-  const earnings = earningsToShow ?? hoveredEarnings;
-
+  // Earnings point: show the full scorecard for THIS hovered marker
   if (earnings) {
     const beat = earnings.epsActual >= earnings.epsEstimate;
     const reactionPositive = earnings.stockReaction >= 0;
 
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-2xl shadow-black/50 min-w-[260px] max-w-[300px]">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-2xl shadow-black/50 w-[280px] pointer-events-none">
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div>
@@ -238,28 +277,27 @@ function CustomTooltip({ active, payload, selectedEarnings }: CustomTooltipProps
             </p>
           </div>
         </div>
-      </div>
-    );
-  }
 
-  // Simple price tooltip for non-earnings points
-  if (active && payload?.[0]) {
-    const point = payload[0].payload;
-    return (
-      <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 shadow-xl shadow-black/40">
-        <p className="text-xs text-slate-500">{formatFullDate(point.date)}</p>
-        <p className="text-sm font-semibold text-slate-100 tabular-nums">
-          ${point.close.toFixed(2)}
+        <p className="text-[10px] text-slate-600 mt-3 text-center">
+          Click marker to lock this quarter into the Deep Dive
         </p>
       </div>
     );
   }
 
-  return null;
+  // Regular price point: minimal date + price
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 shadow-xl shadow-black/40 pointer-events-none">
+      <p className="text-xs text-slate-500">{formatFullDate(point.date)}</p>
+      <p className="text-sm font-semibold text-slate-100 tabular-nums">
+        ${point.close.toFixed(2)}
+      </p>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Custom active dot — highlights the current hover point
+// Custom active dot — only for regular points (not earnings markers)
 // ---------------------------------------------------------------------------
 function ActiveDot(props: {
   cx?: number;
@@ -267,10 +305,7 @@ function ActiveDot(props: {
   payload?: ChartDataPoint;
 }) {
   const { cx = 0, cy = 0, payload } = props;
-  if (payload?.earnings) {
-    // Let the ReferenceDot handle the visual for earnings points
-    return null;
-  }
+  if (payload?.earnings) return null;
   return (
     <g>
       <circle cx={cx} cy={cy} r={6} fill="rgba(59,130,246,0.2)" />
@@ -280,7 +315,7 @@ function ActiveDot(props: {
 }
 
 // ---------------------------------------------------------------------------
-// X-axis tick deduplication: show each month label only once
+// X-axis tick: show each month label once
 // ---------------------------------------------------------------------------
 function MonthTick(props: {
   x?: number;
@@ -289,16 +324,9 @@ function MonthTick(props: {
 }) {
   const { x = 0, y = 0, payload } = props;
   if (!payload) return null;
-  const label = formatMonth(payload.value);
   return (
-    <text
-      x={x}
-      y={y + 14}
-      textAnchor="middle"
-      fill="#64748b"
-      fontSize={11}
-    >
-      {label}
+    <text x={x} y={y + 14} textAnchor="middle" fill="#64748b" fontSize={11}>
+      {formatMonth(payload.value)}
     </text>
   );
 }
@@ -309,11 +337,10 @@ function MonthTick(props: {
 export default function PriceTimeline({
   prices,
   earnings,
+  selectedQuarter,
+  onEarningsSelect,
 }: PriceTimelineProps) {
-  const [selectedEarnings, setSelectedEarnings] =
-    useState<EarningsEvent | null>(null);
-
-  // Merge earnings into chart data for tooltip detection
+  // Merge earnings into chart data so the Tooltip can detect them on hover
   const { chartData, earningsPoints, changePercent } = useMemo(() => {
     const earningsMap = new Map(earnings.map((e) => [e.date, e]));
 
@@ -322,13 +349,9 @@ export default function PriceTimeline({
       earnings: earningsMap.get(p.date),
     }));
 
-    // Find the price at each earnings date for ReferenceDot positioning
     const points = earnings.map((e) => {
       const pricePoint = data.find((d) => d.date === e.date);
-      return {
-        ...e,
-        close: pricePoint?.close ?? 0,
-      };
+      return { ...e, close: pricePoint?.close ?? 0 };
     });
 
     const first = prices[0]?.close ?? 0;
@@ -340,24 +363,24 @@ export default function PriceTimeline({
 
   const isPositive = changePercent >= 0;
 
-  // Compute Y-axis domain with padding
+  // Y-axis domain with padding
   const { yMin, yMax } = useMemo(() => {
     const closes = prices.map((p) => p.close);
     const min = Math.min(...closes);
     const max = Math.max(...closes);
-    const pad = (max - min) * 0.08;
+    const pad = (max - min) * 0.1;
     return {
       yMin: Math.floor((min - pad) * 100) / 100,
       yMax: Math.ceil((max + pad) * 100) / 100,
     };
   }, [prices]);
 
-  // X-axis tick values: one per month
+  // X-axis ticks: one per month
   const monthTicks = useMemo(() => {
     const seen = new Set<string>();
     const ticks: string[] = [];
     for (const p of chartData) {
-      const key = p.date.slice(0, 7); // YYYY-MM
+      const key = p.date.slice(0, 7);
       if (!seen.has(key)) {
         seen.add(key);
         ticks.push(p.date);
@@ -367,12 +390,10 @@ export default function PriceTimeline({
   }, [chartData]);
 
   const handleMarkerClick = useCallback(
-    (e: EarningsEvent) => {
-      setSelectedEarnings((prev) =>
-        prev?.date === e.date ? null : e
-      );
+    (ep: EarningsEvent) => {
+      onEarningsSelect(selectedQuarter === ep.quarter ? null : ep.quarter);
     },
-    []
+    [onEarningsSelect, selectedQuarter]
   );
 
   return (
@@ -402,8 +423,7 @@ export default function PriceTimeline({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={chartData}
-            margin={{ top: 20, right: 12, bottom: 4, left: 0 }}
-            onClick={() => setSelectedEarnings(null)}
+            margin={{ top: 24, right: 16, bottom: 4, left: 0 }}
           >
             {/* Subtle horizontal grid only */}
             <CartesianGrid
@@ -431,13 +451,14 @@ export default function PriceTimeline({
             />
 
             <Tooltip
-              content={<CustomTooltip selectedEarnings={selectedEarnings} />}
+              content={<CustomTooltip />}
               cursor={{
                 stroke: "#334155",
                 strokeWidth: 1,
                 strokeDasharray: "4 4",
               }}
               isAnimationActive={false}
+              allowEscapeViewBox={{ x: false, y: true }}
             />
 
             {/* Price line */}
@@ -451,16 +472,19 @@ export default function PriceTimeline({
               animationDuration={800}
             />
 
-            {/* 'E' markers at each earnings date */}
+            {/* Earnings markers with quarter labels + selection highlight */}
             {earningsPoints.map((ep) => (
               <ReferenceDot
                 key={ep.date}
                 x={ep.date}
                 y={ep.close}
-                shape={<EarningsMarker />}
-                onClick={() => {
-                  handleMarkerClick(ep);
-                }}
+                shape={
+                  <EarningsMarker
+                    quarter={ep.quarter}
+                    isSelected={selectedQuarter === ep.quarter}
+                  />
+                }
+                onClick={() => handleMarkerClick(ep)}
                 isFront={true}
               />
             ))}
@@ -470,11 +494,8 @@ export default function PriceTimeline({
 
       {/* Footer hint */}
       <p className="text-xs text-slate-500 mt-3">
-        Hover over an{" "}
-        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500/20 text-sky-400 text-[10px] font-bold align-text-bottom">
-          E
-        </span>{" "}
-        marker to see the earnings scorecard, or click to pin it.
+        Hover a marker for quick context. Click to lock that quarter into the
+        Deep Dive below.
       </p>
     </div>
   );
