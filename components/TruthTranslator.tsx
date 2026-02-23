@@ -2,13 +2,16 @@
 
 import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageSquareWarning, ChevronRight } from "lucide-react";
+import { MessageSquareWarning, ChevronRight, Loader2, ExternalLink, AlertTriangle, RefreshCw } from "lucide-react";
 import type { TruthTranslatorEntry } from "@/lib/mockData";
 
 interface TruthTranslatorProps {
   entries: TruthTranslatorEntry[];
   selectedQuarter: string | null;
   onSelectQuarter: (quarter: string) => void;
+  analyzingQuarter?: string | null;
+  analysisError?: string | null;
+  onRetryAnalysis?: () => void;
 }
 
 function getVerdictColor(verdict: "delivered" | "partial" | "missed"): string {
@@ -57,6 +60,9 @@ export default function TruthTranslator({
   entries,
   selectedQuarter,
   onSelectQuarter,
+  analyzingQuarter,
+  analysisError,
+  onRetryAnalysis,
 }: TruthTranslatorProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -107,6 +113,51 @@ export default function TruthTranslator({
 
       {/* Content — scrollable */}
       <AnimatePresence mode="wait">
+        {analyzingQuarter === activeQuarter ? (
+          <motion.div
+            key={`loading-${activeQuarter}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center py-16 gap-3"
+          >
+            <Loader2 className="h-8 w-8 text-sky-400 animate-spin" />
+            <p className="text-sm text-slate-400">
+              AI is analyzing {activeQuarter} earnings call...
+            </p>
+            <p className="text-xs text-slate-500">
+              Cross-referencing SEC filings with earnings data
+            </p>
+          </motion.div>
+        ) : analysisError ? (
+          <motion.div
+            key={`error-${activeQuarter}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center py-12 gap-3"
+          >
+            <AlertTriangle className="h-8 w-8 text-amber-400" />
+            <p className="text-sm text-amber-400 font-medium">
+              AI Analysis Unavailable
+            </p>
+            <p className="text-xs text-slate-400 text-center max-w-sm">
+              {analysisError}
+            </p>
+            {onRetryAnalysis && (
+              <button
+                onClick={onRetryAnalysis}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100 transition-colors"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Retry Analysis
+              </button>
+            )}
+            <p className="text-[11px] text-slate-600 mt-1">
+              Showing placeholder data below
+            </p>
+          </motion.div>
+        ) : (
         <motion.div
           key={activeQuarter}
           initial={{ opacity: 0, x: 12 }}
@@ -189,7 +240,20 @@ export default function TruthTranslator({
               {activeEntry.analystTake}
             </p>
           </div>
+          {/* 8-K filing link */}
+          {activeEntry.filingUrl && (
+            <a
+              href={activeEntry.filingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-sky-400 hover:text-sky-300 transition-colors"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              View Official 8-K Filing on SEC EDGAR
+            </a>
+          )}
         </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Transparency footer */}

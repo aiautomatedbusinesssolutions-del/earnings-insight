@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import SearchHeader from "@/components/SearchHeader";
 import TransparencyGauge from "@/components/TransparencyGauge";
 import TruthTranslator from "@/components/TruthTranslator";
 import MasterSummary from "@/components/MasterSummary";
-import { getTickerData, type TickerData } from "@/lib/mockData";
+import type { TickerData, TruthTranslatorEntry } from "@/lib/mockData";
 
 // Dynamic import for Recharts-dependent component — prevents SSR webpack errors
 const PriceTimeline = dynamic(() => import("@/components/PriceTimeline"), {
@@ -28,12 +28,139 @@ const PriceTimeline = dynamic(() => import("@/components/PriceTimeline"), {
 export default function Home() {
   const [tickerData, setTickerData] = useState<TickerData | null>(null);
   const [selectedQuarter, setSelectedQuarter] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDemo, setIsDemo] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<Record<string, TruthTranslatorEntry>>({});
+  const [analysisErrors, setAnalysisErrors] = useState<Record<string, string>>({});
+  const [analyzingQuarters, setAnalyzingQuarters] = useState<Set<string>>(new Set());
+  const fetchedRef = useRef<Set<string>>(new Set());
+  const aiAnalysisRef = useRef<Record<string, TruthTranslatorEntry>>({});
 
-  function handleSearch(ticker: string) {
-    const data = getTickerData(ticker);
-    if (data) {
-      setTickerData(data);
-      setSelectedQuarter(null);
+  // Keep ref in sync with state
+  useEffect(() => {
+    aiAnalysisRef.current = aiAnalysis;
+  }, [aiAnalysis]);
+
+  const fetchAnalysis = useCallback(async (quarter: string) => {
+    if (!tickerData || isDemo) return;
+    // Skip if already cached or in-flight (use ref to avoid stale closure)
+    if (aiAnalysisRef.current[quarter] || fetchedRef.current.has(quarter)) return;
+    fetchedRef.current.add(quarter);
+
+    const earningsEntry = tickerData.earnings.find((e) => e.quarter === quarter);
+    if (!earningsEntry) return;
+
+    console.log(`[UI] Starting AI analysis for ${quarter}...`);
+    setAnalyzingQuarters((prev) => new Set(prev).add(quarter));
+
+    try {
+      const res = await fetch(
+        `/api/analyze/${encodeURIComponent(tickerData.ticker)}/${encodeURIComponent(quarter)}?stockReaction=${earningsEntry.stockReaction}`
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data.errorType === "config"
+          ? "AI API key not configured"
+          : data.errorType === "gemini"
+            ? "AI analysis error — check server logs"
+            : data.errorType === "data"
+              ? "Earnings data not found for this quarter"
+              : data.error || `Analysis failed (${res.status})`;
+        console.warn(`[UI] Analysis failed for ${quarter}: ${errorMsg}`);
+        setAnalysisErrors((prev) => ({ ...prev, [quarter]: errorMsg }));
+        // Remove from fetchedRef so user can retry
+        fetchedRef.current.delete(quarter);
+        return;
+      }
+
+      console.log(`[UI] AI analysis complete for ${quarter}`);
+      setAiAnalysis((prev) => ({ ...prev, [quarter]: data as TruthTranslatorEntry }));
+      // Clear any previous error for this quarter
+      setAnalysisErrors((prev) => {
+        const next = { ...prev };
+        delete next[quarter];
+        return next;
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error";
+      console.warn(`[UI] Network error analyzing ${quarter}:`, msg);
+      setAnalysisErrors((prev) => ({ ...prev, [quarter]: `Network error: ${msg}` }));
+      fetchedRef.current.delete(quarter);
+    } finally {
+      setAnalyzingQuarters((prev) => {
+        const next = new Set(prev);
+        next.delete(quarter);
+        return next;
+      });
+    }
+  }, [tickerData, isDemo]);
+
+  // Auto-trigger analysis when selected quarter changes
+  useEffect(() => {
+    if (!tickerData || isDemo) return;
+    const quarter = selectedQuarter ?? tickerData.earnings[tickerData.earnings.length - 1]?.quarter;
+    if (quarter) fetchAnalysis(quarter);
+  }, [selectedQuarter, tickerData, isDemo, fetchAnalysis]);
+
+  // Merge AI analysis over placeholder entries
+  const mergedEntries = useMemo(() => {
+    if (!tickerData) return [];
+    return tickerData.truthTranslator.map((entry) =>
+      aiAnalysis[entry.quarter] ?? entry
+    );
+  }, [tickerData, aiAnalysis]);
+
+  // Currently analyzing quarter for spinner + current error
+  const activeQuarterKey = useMemo(() => {
+    return selectedQuarter ?? tickerData?.earnings[tickerData.earnings.length - 1]?.quarter ?? null;
+  }, [selectedQuarter, tickerData]);
+
+  const currentAnalyzingQuarter = useMemo(() => {
+    return activeQuarterKey && analyzingQuarters.has(activeQuarterKey) ? activeQuarterKey : null;
+  }, [activeQuarterKey, analyzingQuarters]);
+
+  const currentAnalysisError = useMemo(() => {
+    return activeQuarterKey ? analysisErrors[activeQuarterKey] ?? null : null;
+  }, [activeQuarterKey, analysisErrors]);
+
+  async function handleSearch(ticker: string) {
+    setIsLoading(true);
+    setSearchError(null);
+    setSelectedQuarter(null);
+    setAiAnalysis({});
+    setAnalysisErrors({});
+    setAnalyzingQuarters(new Set());
+    fetchedRef.current = new Set();
+    aiAnalysisRef.current = {};
+
+    try {
+      const res = await fetch(`/api/ticker/${encodeURIComponent(ticker)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data.hint
+          ? `${data.error}\n${data.hint}`
+          : data.error || `No data found for "${ticker}". Try another ticker.`;
+        setSearchError(errorMsg);
+        // If the response included demo data despite the error status
+        if (data.prices) {
+          setTickerData(data as TickerData);
+          setIsDemo(data.isDemo ?? true);
+        }
+        return;
+      }
+
+      setTickerData(data as TickerData);
+      setIsDemo(data.isDemo ?? false);
+    } catch {
+      setSearchError(
+        "Network error. Please check your connection and try again."
+      );
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -60,6 +187,9 @@ export default function Home() {
           <SearchHeader
             onSearch={handleSearch}
             currentTicker={tickerData?.ticker ?? null}
+            isLoading={isLoading}
+            isDemo={isDemo}
+            error={searchError}
           />
         </div>
 
@@ -96,9 +226,12 @@ export default function Home() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                   <TruthTranslator
-                    entries={tickerData.truthTranslator}
+                    entries={mergedEntries}
                     selectedQuarter={selectedQuarter}
                     onSelectQuarter={(q) => setSelectedQuarter(q)}
+                    analyzingQuarter={currentAnalyzingQuarter}
+                    analysisError={currentAnalysisError}
+                    onRetryAnalysis={activeQuarterKey ? () => fetchAnalysis(activeQuarterKey) : undefined}
                   />
                 </div>
                 <div className="lg:col-span-1">

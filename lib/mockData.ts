@@ -30,6 +30,7 @@ export interface TruthTranslatorEntry {
   reality: string[]; // What actually happened
   verdicts: ("delivered" | "partial" | "missed")[]; // 1:1 with script/reality
   analystTake: string; // Friendly long-form explanation for beginners
+  filingUrl?: string; // Link to SEC 8-K filing on EDGAR
 }
 
 export interface BrokenPromise {
